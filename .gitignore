@@ -1,3 +1,9 @@
 composer.phar
 composer.lock
-vendor
+vendor/
+*.swp
+*.bak
+*.log
+.vscode
+.DS_Store
+.lesshst

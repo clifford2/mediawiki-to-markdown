@@ -19,7 +19,7 @@ if(!empty($arguments['output'])) {
         
     if(!file_exists($output_path)) {
         echo "Creating output directory $output_path" . PHP_EOL . PHP_EOL;
-        mkdir($output_path);
+        mkdir($output_path, 0755, true);
     }
 
 } else {
@@ -29,11 +29,12 @@ if(!empty($arguments['output'])) {
 if(!empty($arguments['format'])) {
     $format = $arguments['format'];
 } else {
-    $format = 'markdown_github';
+    $format = 'gfm';
 }
 
 
-if(!empty($arguments['fm']) OR (empty($arguments['fm']) && $format == 'markdown_github')) {
+if(!empty($arguments['fm']) OR (empty($arguments['fm']) && $format == 'markdown_github') OR (empty($arguments['fm']) && $format == 'gfm')
+) {
     $add_meta = true;
 } else {
     $add_meta = false;
@@ -52,14 +53,17 @@ $xml = new SimpleXMLElement($xml);
 
 $result = $xml->xpath('page');
 $count = 0;
+$errors = 0;
 $directory_list = array();
 
 // Iterate through XML
-while(list( , $node) = each($result)) {
+foreach($result as $unused => $node) {
     
     $title = $node->xpath('title');
     $title = $title[0];
     $url = str_replace(' ', '_', $title);
+
+    // echo 'Converting "' . $title . '"' . PHP_EOL;
 
     if($slash = strpos($url, '/')){
         $title = str_replace('/', ' ', $title);
@@ -89,33 +93,44 @@ while(list( , $node) = each($result)) {
         "from"  => "mediawiki",
         "to"    => $format
     );
-    $text = $pandoc->runWith($text, $options);
+    try {
+        $text = $pandoc->runWith($text, $options);
 
-    $text = str_replace('\_', '_', $text);
+        $text = str_replace('\_', '_', $text);
 
-    if ($add_meta) {
-        $text = $frontmatter . $text;
-    }
-
-    if (substr($output_path, -1) != '/') $output_path = $output_path . '/';
-
-    $directory = $output_path . $directory;
-
-    // create directory if necessary
-    if(!empty($directory)) {
-        if(!file_exists($directory)) {
-            mkdir($directory);
+        if ($add_meta) {
+            $text = $frontmatter . $text;
         }
 
-        $directory = $directory . '/';
+        if (substr($output_path, -1) != '/') $output_path = $output_path . '/';
+
+        $directory = $output_path . $directory;
+
+        // create directory if necessary
+        if(!empty($directory)) {
+            if(!file_exists($directory)) {
+                mkdir($directory, 0755, true);
+            }
+
+            $directory = $directory . '/';
+        }
+
+        // create file
+        $file = fopen(normalizePath($directory . $filename . '.md'), 'w');
+        fwrite($file, $text);
+        fclose($file);
+
+        $count++;
     }
-
-    // create file
-    $file = fopen(normalizePath($directory . $filename . '.md'), 'w');
-    fwrite($file, $text);
-    fclose($file);
-
-    $count++;
+    catch(Exception $e) {
+        $errors++;
+        echo 'Failed to convert "' . $title . '" - saving input to /tmp/errdoc' . $errors . '.mediawiki' . PHP_EOL . PHP_EOL;
+        echo 'Message: ' .$e->getMessage();
+        // save source text for troubleshooting
+        $file = fopen(normalizePath('/tmp/errdoc' . $errors . '.mediawiki'), 'w');
+        fwrite($file, $text);
+        fclose($file);
+    }
 
 }
 
@@ -137,6 +152,10 @@ if (!empty($directory_list) && !empty($arguments['indexes'])) {
 if ($count > 0) {
     echo "$count files converted" . PHP_EOL . PHP_EOL;
 }
+if ($errors > 0) {
+    echo "$errors errors encountered" . PHP_EOL . PHP_EOL;
+}
+
 
 
 function arguments($argv) {
